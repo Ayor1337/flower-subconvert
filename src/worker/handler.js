@@ -11,7 +11,7 @@ import {
 } from "./upstream.js";
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const requestUrl = new URL(request.url);
     const isHead = request.method === "HEAD";
 
@@ -29,9 +29,9 @@ export default {
       return errorResponse(404, "接口不存在", isHead);
     }
 
-    const credentials = readCredentialsFromToken(requestUrl.searchParams);
+    const credentials = await readCredentialsFromToken(requestUrl.searchParams, env);
     if (credentials.error) {
-      return errorResponse(400, credentials.error, isHead);
+      return errorResponse(credentials.status || 400, credentials.error, isHead);
     }
 
     const { service, id, password } = credentials;
@@ -84,3 +84,4 @@ export default {
     return new Response(isHead ? null : body, { status: 200, headers });
   },
 };
+
