@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run build:worker && vite build",
+    "deploy": "npx wrangler deploy",
     "preview": "vite preview",
     "build:worker": "node build-worker.mjs",
     "test:worker": "node test-worker.mjs",
