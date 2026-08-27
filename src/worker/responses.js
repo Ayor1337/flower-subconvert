@@ -2,9 +2,9 @@ export function helpResponse(isHead) {
   const body = [
     "flower-sub 动态订阅服务",
     "",
-    "GET /sub?token=<Base64(UTF-8(service|id|加拿大Relay密码))>",
+    "GET /sub?token=<10 位短 token>",
     "",
-    "请对每个参数进行 URL 编码，并将完整订阅 URL 视为敏感信息。",
+    "短 token 由 Cloudflare KV 映射到订阅凭据，请将完整订阅 URL 视为敏感信息。",
   ].join("\n");
 
   return new Response(isHead ? null : body, {
@@ -28,3 +28,4 @@ export function errorResponse(status, message, isHead, extraHeaders = {}) {
     },
   });
 }
+
