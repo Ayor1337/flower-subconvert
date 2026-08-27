@@ -1,0 +1,43 @@
+proxies:
+  - name: "🇺🇸 美国@c57s1"
+    type: ss
+    server: "192.0.2.1"
+    port: 10001
+    cipher: "aes-256-gcm"
+    password: "fixture-password-1"
+    udp: true
+  - name: "🇺🇸 美国@c57s2"
+    type: ss
+    server: "192.0.2.2"
+    port: 10002
+    cipher: "aes-256-gcm"
+    password: "fixture-password-2"
+    udp: true
+  - name: "🇺🇸 美国@c57s3"
+    type: ss
+    server: "192.0.2.3"
+    port: 10003
+    cipher: "aes-256-gcm"
+    password: "fixture-password-3"
+    udp: true
+  - name: "🇯🇵 日本@c57s4"
+    type: ss
+    server: "192.0.2.4"
+    port: 10004
+    cipher: "aes-256-gcm"
+    password: "fixture-password-4"
+    udp: true
+  - name: "🇳🇱 荷兰@c57s5"
+    type: ss
+    server: "192.0.2.5"
+    port: 10005
+    cipher: "aes-256-gcm"
+    password: "fixture-password-5"
+    udp: true
+  - name: "🇺🇸 美国@c57s801"
+    type: ss
+    server: "192.0.2.6"
+    port: 10006
+    cipher: "aes-256-gcm"
+    password: "fixture-password-6"
+    udp: true
