@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+*.local
+
+# 本地订阅快照可能包含节点密码、UUID 或其他凭据，不上传到公开仓库。
+merged_clash.yaml
+RuyIPKAzLP56.yaml
+rbMKjmr5qfGM.yaml
+pxhf9WeF0Kq0.yaml
+gWrSGtcOcLzg.yaml
+
