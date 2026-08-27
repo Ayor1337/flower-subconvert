@@ -149,6 +149,12 @@ try {
     network: tcp
     tls: true
     servername: "vless.example.com"
+    client-fingerprint: chrome
+    skip-cert-verify: true
+    reality-opts:
+      public-key: "test-yaml-public-key"
+      short-id: "0123456789abcdef"
+      spider-x: "/reality path"
   - name: "JMS-100@c57s4.example:443"
     type: trojan
     server: "192.0.2.4"
@@ -196,9 +202,14 @@ try {
 
   const vlessLink = new URL(shadowrocketLinks.find((link) => link.startsWith("vless://")));
   assert.equal(vlessLink.hostname, "192.0.2.3");
-  assert.equal(vlessLink.searchParams.get("security"), "tls");
+  assert.equal(vlessLink.searchParams.get("security"), "reality");
   assert.equal(vlessLink.searchParams.get("sni"), "vless.example.com");
   assert.equal(vlessLink.searchParams.get("flow"), "xtls-rprx-vision");
+  assert.equal(vlessLink.searchParams.get("fp"), "chrome");
+  assert.equal(vlessLink.searchParams.get("pbk"), "test-yaml-public-key");
+  assert.equal(vlessLink.searchParams.get("sid"), "0123456789abcdef");
+  assert.equal(vlessLink.searchParams.get("spx"), "/reality path");
+  assert.equal(vlessLink.searchParams.get("allowInsecure"), null);
 
   const trojanLink = new URL(shadowrocketLinks.find((link) => link.startsWith("trojan://")));
   assert.equal(trojanLink.hostname, "192.0.2.4");
@@ -332,14 +343,30 @@ try {
     subscriptionRequest({ id: syntheticId, password: "relay-password", target: "shadowrocket" }),
   );
   assert.equal(encodedShadowrocket.status, 200);
-  assert.equal(encodedShadowrocket.headers.get("x-subscription-skipped"), "4");
+  assert.equal(encodedShadowrocket.headers.get("x-subscription-skipped"), "0");
   const encodedShadowrocketLinks = Buffer.from(
     await encodedShadowrocket.text(),
     "base64",
   ).toString("utf8").split("\n");
-  assert.equal(encodedShadowrocketLinks.length, 2);
-  assert.ok(encodedShadowrocketLinks.every((link) => link.startsWith("ss://")));
-  assert.ok(encodedShadowrocketLinks.every((link) => !link.includes("%E5%8A%A0%E6%8B%BF%E5%A4%A7%40relay")));
+  assert.equal(encodedShadowrocketLinks.length, 7);
+  assert.equal(encodedShadowrocketLinks.filter((link) => link.startsWith("ss://")).length, 3);
+  const encodedRealityLinks = encodedShadowrocketLinks
+    .filter((link) => link.startsWith("vless://"))
+    .map((link) => new URL(link));
+  assert.equal(encodedRealityLinks.length, 4);
+  for (const link of encodedRealityLinks) {
+    assert.equal(link.searchParams.get("security"), "reality");
+    assert.equal(link.searchParams.get("type"), "tcp");
+    assert.equal(link.searchParams.get("sni"), "example.com");
+    assert.equal(link.searchParams.get("fp"), "chrome");
+    assert.equal(link.searchParams.get("pbk"), "test-public-key");
+    assert.equal(link.searchParams.get("sid"), "abcd");
+    assert.equal(link.searchParams.get("flow"), "xtls-rprx-vision");
+  }
+  const encodedRelayLink = encodedShadowrocketLinks.find((link) =>
+    link.includes("%E5%8A%A0%E6%8B%BF%E5%A4%A7%40relay")
+  );
+  assert.equal(new URL(encodedRelayLink).searchParams.get("chain"), "🇺🇸 美国@c57s3");
 
   installFetchMock();
   const specialPassword = 'a+b/="quoted"';

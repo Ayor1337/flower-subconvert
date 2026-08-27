@@ -82,6 +82,7 @@ function parseVlessUri(uri) {
     fingerprint: parsed.searchParams.get("fp") || "",
     publicKey: parsed.searchParams.get("pbk") || "",
     shortId: parsed.searchParams.get("sid") || "",
+    spiderX: parsed.searchParams.get("spx") || "",
     "skip-cert-verify": parsed.searchParams.get("allowInsecure") === "1",
     "ws-opts": readWsOptions(parsed),
     reality,
@@ -225,6 +226,9 @@ export function serializeProxy(proxy) {
     lines.push("    reality-opts:");
     lines.push("      public-key: " + JSON.stringify(proxy.publicKey));
     lines.push("      short-id: " + JSON.stringify(proxy.shortId));
+    if (proxy.spiderX) {
+      lines.push("      spider-x: " + JSON.stringify(proxy.spiderX));
+    }
   }
 
   return lines.join("\n");

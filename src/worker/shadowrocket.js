@@ -39,9 +39,6 @@ export function serializeShadowrocketProxy(proxy) {
   if (!SUPPORTED_NETWORKS.has(network)) {
     throw new Error("unsupported transport: " + network);
   }
-  if (isReality(proxy)) {
-    throw new Error("reality is not supported");
-  }
 
   switch (type) {
     case "ss":
@@ -129,13 +126,48 @@ function serializeVless(proxy, network) {
   const params = new URLSearchParams();
   params.set("encryption", textOrEmpty(proxy.encryption || "none"));
   if (proxy.flow) params.set("flow", String(proxy.flow));
-  appendTransportAndTls(params, proxy, network);
+  if (isReality(proxy)) {
+    appendReality(params, proxy, network);
+  } else {
+    appendTransportAndTls(params, proxy, network);
+  }
   return buildStandardUri(
     "vless",
     requireText(proxy.uuid, "vless uuid"),
     proxy,
     params,
   );
+}
+
+function appendReality(params, proxy, network) {
+  if (network !== "tcp") {
+    throw new Error("unsupported reality transport: " + network);
+  }
+
+  const options = proxy["reality-opts"] || {};
+  const servername = requireText(proxy.servername || proxy.sni, "reality sni");
+  const fingerprint = requireText(
+    proxy.fingerprint || proxy["client-fingerprint"],
+    "reality fingerprint",
+  );
+  const publicKey = requireText(
+    proxy.publicKey || proxy["public-key"] || options["public-key"] || options.publicKey,
+    "reality public key",
+  );
+  const shortId = textOrEmpty(
+    proxy.shortId || proxy["short-id"] || options["short-id"] || options.shortId,
+  );
+  const spiderX = textOrEmpty(
+    proxy.spiderX || proxy["spider-x"] || options["spider-x"] || options.spiderX,
+  );
+
+  params.set("type", "tcp");
+  params.set("security", "reality");
+  params.set("sni", servername);
+  params.set("fp", fingerprint);
+  params.set("pbk", publicKey);
+  if (shortId) params.set("sid", shortId);
+  if (spiderX) params.set("spx", spiderX);
 }
 
 function serializeTrojan(proxy, network) {

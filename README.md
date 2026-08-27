@@ -57,10 +57,10 @@ https://你的域名/sub?token=<短 token>&target=shadowrocket
 | --- | --- | --- | --- | --- |
 | Shadowsocks | 是 | 通过 `v2ray-plugin` | 由插件参数决定 | 支持 SIP002、simple-obfs |
 | VMess | 是 | 是 | 是 | 输出 Shadowrocket 兼容的 Base64 JSON URI |
-| VLESS | 是 | 是 | 是 | 不支持 Reality |
+| VLESS | 是 | 是 | 是 | 支持 TCP Reality，保留 SNI、指纹、公钥和短 ID |
 | Trojan | 是 | 是 | 是 | TLS 默认启用 |
 
-gRPC、Reality、HTTP/2、XHTTP 和其他协议会被跳过。成功响应的 `X-Subscription-Skipped` 头表示跳过数量；如果没有任何可转换节点，接口返回 `422`。
+gRPC、HTTP/2、XHTTP、非 TCP Reality 和其他未覆盖传输会被跳过。成功响应的 `X-Subscription-Skipped` 头表示跳过数量；如果没有任何可转换节点，接口返回 `422`。
 
 加拿大节点的 URI 会携带 Shadowrocket 专用参数 `chain=🇺🇸 美国@c57s3`，因此导入后默认通过 c57s3 连接。该参数是 Shadowrocket 扩展，不属于通用 SIP002 标准。
 
@@ -76,7 +76,7 @@ if (/加拿大@relay/.test($server.title)) {
 
 ### Shadowrocket (English)
 
-Create a `Subscribe` entry in Shadowrocket and append `target=shadowrocket` to the existing URL. The response is a Base64-encoded list of SS, VMess, VLESS, and Trojan node URIs. TCP and WebSocket transports are supported, including TLS/SNI and WebSocket Host/Path. When c57s3 is available, the feed also includes the Canada relay with Shadowrocket's non-standard `chain=🇺🇸 美国@c57s3` URI parameter. The filter script above is a fallback for versions that do not apply this URI extension. Clash policy groups, rules, DNS settings, Reality, gRPC, HTTP/2, and XHTTP are not included. Unsupported nodes are counted in the `X-Subscription-Skipped` response header; the endpoint returns `422` when no node can be converted.
+Create a `Subscribe` entry in Shadowrocket and append `target=shadowrocket` to the existing URL. The response is a Base64-encoded list of SS, VMess, VLESS, and Trojan node URIs. TCP and WebSocket transports are supported, including TLS/SNI and WebSocket Host/Path. VLESS over TCP with Reality is supported and preserves SNI, fingerprint, public key, short ID, and optional SpiderX parameters. When c57s3 is available, the feed also includes the Canada relay with Shadowrocket's non-standard `chain=🇺🇸 美国@c57s3` URI parameter. The filter script above is a fallback for versions that do not apply this URI extension. Clash policy groups, rules, DNS settings, gRPC, HTTP/2, XHTTP, and non-TCP Reality transports are not included. Unsupported nodes are counted in the `X-Subscription-Skipped` response header; the endpoint returns `422` when no node can be converted.
 
 ## Cloudflare Workers 部署
 
