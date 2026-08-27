@@ -2,31 +2,21 @@ import { useEffect, useState } from "react";
 import Flag from "./Flag.jsx";
 
 const nodes = [
-  { flag: "us", name: "美国@c57s1", region: "美国 · c57s1", latency: 168, level: "ok" },
-  { flag: "us", name: "美国@c57s2", region: "美国 · c57s2", latency: 176, level: "ok" },
-  { flag: "us", name: "美国@c57s3", region: "美国 · c57s3", latency: 183, level: "ok" },
-  { flag: "jp", name: "日本@c57s4", region: "日本 · c57s4", latency: 92, level: "fast" },
-  { flag: "nl", name: "荷兰@c57s5", region: "荷兰 · c57s5", latency: 146, level: "ok" },
-  {
-    flag: "us",
-    name: "美国@c57s801",
-    region: "美国 · 0.1x 下载路线",
-    latency: 203,
-    level: "slow",
-  },
+  { flag: "us", name: "美国@c57s1", region: "美国 · c57s1" },
+  { flag: "us", name: "美国@c57s2", region: "美国 · c57s2" },
+  { flag: "us", name: "美国@c57s3", region: "美国 · c57s3" },
+  { flag: "jp", name: "日本@c57s4", region: "日本 · c57s4" },
+  { flag: "nl", name: "荷兰@c57s5", region: "荷兰 · c57s5" },
+  { flag: "us", name: "美国@c57s801", region: "美国 · 0.1x 下载路线" },
+  { flag: "ca", name: "加拿大@relay", region: "加拿大 · relay" },
 ];
 
 const tickerItems = [
   "一个订阅地址，仅此而已",
   "SUBSCRIPTION ONLY",
   "CLASH / MIHOMO READY",
-  "REFERENCE LATENCY ONLY",
+  "CLASH / SHADOWROCKET READY",
 ];
-
-// 延迟越低，计量条越长
-function meterWidth(latency) {
-  return Math.round(Math.min(94, Math.max(16, 138 - latency * 0.58)));
-}
 
 function useShanghaiClock() {
   const [time, setTime] = useState("--:--:--");
@@ -48,34 +38,12 @@ function useShanghaiClock() {
   return time;
 }
 
-function countUp(valueEl) {
-  const target = Number(valueEl.dataset.count);
-  const numEl = valueEl.querySelector(".latency-num");
-  if (!target || !numEl || valueEl.dataset.done === "1") return;
-  valueEl.dataset.done = "1";
-
-  const duration = 1150;
-  const startedAt = performance.now();
-  const step = (now) => {
-    const progress = Math.min(1, (now - startedAt) / duration);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    numEl.textContent = String(Math.round(eased * target)).padStart(3, "0");
-    if (progress < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-
 function App() {
   const clock = useShanghaiClock();
 
   useEffect(() => {
     const revealed = document.querySelectorAll("[data-reveal]");
-    const finishAll = () =>
-      revealed.forEach((el) => {
-        el.classList.add("is-in");
-        const valueEl = el.querySelector(".latency-value");
-        if (valueEl) countUp(valueEl);
-      });
+    const finishAll = () => revealed.forEach((el) => el.classList.add("is-in"));
 
     if (
       window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
@@ -91,8 +59,6 @@ function App() {
           if (!entry.isIntersecting) continue;
           observer.unobserve(entry.target);
           entry.target.classList.add("is-in");
-          const valueEl = entry.target.querySelector(".latency-value");
-          if (valueEl) countUp(valueEl);
         }
       },
       { threshold: 0.2, rootMargin: "0px 0px -48px" },
@@ -156,10 +122,10 @@ function App() {
             </span>
           </h1>
           <p className="hero-text" style={{ "--i": 3 }}>
-            一个订阅地址，仅此而已。页面里的延迟只是参考，
-            真正的答案请交给你的 Clash / Mihomo 客户端。
+            一个订阅地址，仅此而已。节点好不好用，
+            请交给你的 Clash / Mihomo 客户端实测。
           </p>
-          <a className="hero-cue" href="#latency" style={{ "--i": 4 }}>
+          <a className="hero-cue" href="#nodes" style={{ "--i": 4 }}>
             继续往下看
             <svg
               className="cue-arrow"
@@ -172,19 +138,15 @@ function App() {
         </section>
 
         <section
-          className="latency-section"
-          id="latency"
-          aria-labelledby="latency-title"
+          className="node-section"
+          id="nodes"
+          aria-labelledby="node-title"
         >
           <div className="section-heading" data-reveal>
             <div>
-              <p className="kicker">NODE LATENCY</p>
-              <h2 id="latency-title">下面看看节点延迟</h2>
+              <p className="kicker">NODE LIST</p>
+              <h2 id="node-title">下面看看有哪些节点</h2>
             </div>
-            <span className="reference-badge">
-              <i className="badge-ping" />
-              参考数据
-            </span>
           </div>
 
           <div className="node-grid">
@@ -205,32 +167,19 @@ function App() {
                       {node.name}
                     </strong>
                     <span className="node-region">
-                      <i className={`node-dot dot-${node.level}`} />
+                      <i className="node-dot" />
                       {node.region}
                     </span>
                   </div>
-                </div>
-                <span
-                  className={`latency-value latency-${node.level}`}
-                  data-count={node.latency}
-                >
-                  <span className="latency-num">{node.latency}</span>
-                  <small>ms</small>
-                </span>
-                <div className="latency-meter" aria-hidden="true">
-                  <i
-                    className={node.level}
-                    style={{ "--w": `${meterWidth(node.latency)}%` }}
-                  />
                 </div>
               </article>
             ))}
           </div>
 
-          <p className="latency-footnote" data-reveal>
+          <p className="node-footnote" data-reveal>
             <span className="footnote-mark">i</span>
-            延迟数值仅作页面参考，实际结果会因网络环境变化，请以 Clash / Mihomo
-            客户端测速为准。
+            列表与订阅保持同步，可用性会随网络环境波动，请以 Clash / Mihomo
+            客户端实测为准。
           </p>
         </section>
 

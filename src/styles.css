@@ -13,12 +13,6 @@
   --lime: #d9f95b;
   --orange: #ff6d4a;
   --fast: #379b52;
-  --amber: #b07a24;
-  --slow: #d95f3f;
-
-  --badge-bg: #e6f1e6;
-  --badge-border: #c8d4cb;
-  --badge-fg: #4c8a53;
 
   --glow-a: rgba(217, 249, 91, 0.34);
   --glow-b: rgba(255, 109, 74, 0.12);
@@ -45,12 +39,6 @@
 
     --orange: #ff8563;
     --fast: #55cc7c;
-    --amber: #e5b355;
-    --slow: #ff8563;
-
-    --badge-bg: rgba(85, 204, 124, 0.1);
-    --badge-border: rgba(85, 204, 124, 0.35);
-    --badge-fg: #7fdb9d;
 
     --glow-a: rgba(163, 199, 43, 0.13);
     --glow-b: rgba(255, 133, 99, 0.09);
@@ -99,7 +87,6 @@ code,
 .topbar-clock,
 .ticker-item,
 .node-index,
-.latency-value,
 .hero-cue,
 .footer {
   font-family: var(--font-mono);
@@ -434,9 +421,9 @@ h1 {
   }
 }
 
-/* ---------- latency section ---------- */
+/* ---------- nodes section ---------- */
 
-.latency-section {
+.node-section {
   padding: 14px 0 80px;
 }
 
@@ -457,49 +444,6 @@ h1 {
   font-size: clamp(32px, 5vw, 50px);
   letter-spacing: -0.055em;
   line-height: 1.05;
-}
-
-.reference-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 12px;
-  border: 1px solid var(--badge-border);
-  border-radius: 999px;
-  color: var(--badge-fg);
-  background: var(--badge-bg);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.badge-ping {
-  position: relative;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.badge-ping::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  opacity: 0;
-  animation: ping 2.1s ease-out infinite;
-}
-
-@keyframes ping {
-  0% {
-    transform: scale(0.5);
-    opacity: 0.9;
-  }
-  70%,
-  100% {
-    transform: scale(1.7);
-    opacity: 0;
-  }
 }
 
 .node-grid {
@@ -591,91 +535,10 @@ h1 {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  background: var(--orange);
 }
 
-.dot-fast {
-  background: var(--fast);
-}
-
-.dot-ok {
-  background: var(--amber);
-}
-
-.dot-slow {
-  background: var(--slow);
-}
-
-.latency-value {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: baseline;
-  gap: 3px;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.05em;
-  font-variant-numeric: tabular-nums;
-  transition: scale 0.3s var(--ease-out);
-}
-
-.node-card:hover .latency-value {
-  scale: 1.07;
-}
-
-.latency-value small {
-  font-size: 10px;
-  letter-spacing: 0;
-}
-
-.latency-fast {
-  color: var(--fast);
-}
-
-.latency-ok {
-  color: var(--amber);
-}
-
-.latency-slow {
-  color: var(--slow);
-}
-
-/* 计量条：贴着卡片底边生长 */
-.latency-meter {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 2px;
-  pointer-events: none;
-}
-
-.latency-meter i {
-  display: block;
-  width: var(--w, 40%);
-  height: 100%;
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 1s var(--ease-out);
-  transition-delay: calc(0.25s + var(--i, 0) * 0.09s);
-}
-
-[data-reveal].is-in .latency-meter i {
-  transform: scaleX(1);
-}
-
-.latency-meter .fast {
-  background: linear-gradient(90deg, var(--fast), var(--fast));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--fast) 55%, transparent);
-}
-
-.latency-meter .ok {
-  background: var(--amber);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--amber) 45%, transparent);
-}
-
-.latency-meter .slow {
-  background: var(--slow);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--slow) 50%, transparent);
-}
-
-.latency-footnote {
+.node-footnote {
   display: flex;
   align-items: flex-start;
   gap: 9px;
@@ -756,11 +619,7 @@ h1 {
     display: block;
   }
 
-  .reference-badge {
-    margin-top: 13px;
-  }
-
-  .latency-section {
+  .node-section {
     padding-top: 0;
   }
 
@@ -781,10 +640,6 @@ h1 {
 
   .node-info strong {
     font-size: 13px;
-  }
-
-  .latency-value {
-    font-size: 18px;
   }
 
   .swash {

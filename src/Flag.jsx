@@ -45,10 +45,32 @@ function FlagNL() {
   );
 }
 
+// 枫叶为左右对称的简化轮廓，中心线 x=12，配合平移缩放落到旗面中央
+const MAPLE_LEAF =
+  "M12 2 L13.5 6 L17 4 L16 8 L21 8 L17.5 11 L20.5 14 L16.5 14.5 " +
+  "L18 18.5 L14 17 L14 21 L10 21 L10 17 L6 18.5 L7.5 14.5 " +
+  "L3.5 14 L6.5 11 L3 8 L8 8 L7 4 L10.5 6 Z";
+
+function FlagCA() {
+  return (
+    <svg viewBox="0 0 30 20" preserveAspectRatio="none">
+      <rect width="30" height="20" fill="#fff" />
+      <rect width="7.5" height="20" fill="#d52b1e" />
+      <rect x="22.5" width="7.5" height="20" fill="#d52b1e" />
+      <path
+        d={MAPLE_LEAF}
+        fill="#d52b1e"
+        transform="translate(6.7 2.1) scale(0.69)"
+      />
+    </svg>
+  );
+}
+
 const FLAGS = {
   us: FlagUS,
   jp: FlagJP,
   nl: FlagNL,
+  ca: FlagCA,
 };
 
 export default function Flag({ code }) {
