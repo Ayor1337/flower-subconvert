@@ -11,5 +11,11 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/sub", "/sub/*"]
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "TOKENS",
+      "id": "27ef6c733c794185a0c3518ef83b93dc"
+    }
+  ]
 }
