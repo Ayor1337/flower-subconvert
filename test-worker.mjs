@@ -81,7 +81,10 @@ function subscriptionRequest(params = {}) {
   const token = params.token ?? Buffer.from(`${service}|${id}|${password}`, "utf8").toString("base64");
   url.searchParams.set("token", token);
   if (params.target !== undefined) url.searchParams.set("target", params.target);
-  return new Request(url);
+  const headers = params.userAgent === undefined
+    ? undefined
+    : { "User-Agent": params.userAgent };
+  return new Request(url, { headers, method: params.method || "GET" });
 }
 
 try {
@@ -110,6 +113,21 @@ try {
   assert.equal(explicitClash.status, 200);
   assert.equal(explicitClash.headers.get("content-type"), "text/yaml; charset=utf-8");
   assert.equal(await explicitClash.text(), expectedYaml);
+
+  for (const userAgent of [
+    "ClashMeta/1.19.0",
+    "Mihomo/1.19.0",
+    "Stash/2.6.0",
+    "Mozilla/5.0",
+    "UnknownClient/1.0",
+    "",
+  ]) {
+    installFetchMock();
+    const detectedClash = await worker.fetch(subscriptionRequest({ userAgent }));
+    assert.equal(detectedClash.status, 200);
+    assert.equal(detectedClash.headers.get("content-type"), "text/yaml; charset=utf-8");
+    assert.equal(await detectedClash.text(), expectedYaml);
+  }
 
   const unsupportedTarget = await worker.fetch(subscriptionRequest({ target: "surge" }));
   assert.equal(unsupportedTarget.status, 400);
@@ -179,7 +197,10 @@ try {
     network: grpc
 `;
   installFetchMock({ subscriptionBody: shadowrocketYaml });
-  const shadowrocket = await worker.fetch(subscriptionRequest({ target: "ShAdOwRoCkEt" }));
+  const shadowrocket = await worker.fetch(subscriptionRequest({
+    target: "ShAdOwRoCkEt",
+    userAgent: "ClashMeta/1.19.0",
+  }));
   assert.equal(shadowrocket.status, 200);
   assert.equal(shadowrocket.headers.get("content-type"), "text/plain; charset=utf-8");
   assert.equal(shadowrocket.headers.get("x-subscription-skipped"), "2");
@@ -226,8 +247,27 @@ try {
   assert.ok(!relayLink.includes("+"));
   assert.equal(new URL(relayLink).searchParams.get("chain"), "🇺🇸 美国@c57s3");
 
+  installFetchMock({ subscriptionBody: shadowrocketYaml });
+  const detectedShadowrocket = await worker.fetch(subscriptionRequest({
+    target: "",
+    userAgent: "ShAdOwRoCkEt/2.2.68 iOS/18.0",
+  }));
+  assert.equal(detectedShadowrocket.status, 200);
+  assert.equal(detectedShadowrocket.headers.get("content-type"), "text/plain; charset=utf-8");
+  assert.equal(detectedShadowrocket.headers.get("x-subscription-skipped"), "2");
+
+  installFetchMock({ subscriptionBody: shadowrocketYaml });
+  const forcedClash = await worker.fetch(subscriptionRequest({
+    target: "clash",
+    userAgent: "Shadowrocket/2.2.68",
+  }));
+  assert.equal(forcedClash.status, 200);
+  assert.equal(forcedClash.headers.get("content-type"), "text/yaml; charset=utf-8");
+  assert.match(await forcedClash.text(), /^mixed-port: 7890\n/);
+
+  installFetchMock({ subscriptionBody: shadowrocketYaml });
   const shadowrocketHead = await worker.fetch(
-    new Request(subscriptionRequest({ target: "shadowrocket" }), { method: "HEAD" }),
+    subscriptionRequest({ method: "HEAD", userAgent: "Shadowrocket/2.2.68" }),
   );
   assert.equal(shadowrocketHead.status, 200);
   assert.equal(shadowrocketHead.headers.get("x-subscription-skipped"), "2");

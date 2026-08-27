@@ -11,6 +11,18 @@ import {
   fetchSubscription,
 } from "./upstream.js";
 
+export function resolveTarget(searchParams, headers) {
+  const requestedTarget = searchParams.get("target");
+  if (requestedTarget) {
+    return requestedTarget.toLowerCase();
+  }
+
+  const userAgent = headers.get("user-agent") || "";
+  return userAgent.toLowerCase().includes("shadowrocket")
+    ? "shadowrocket"
+    : "clash";
+}
+
 export default {
   async fetch(request, env) {
     const requestUrl = new URL(request.url);
@@ -30,7 +42,7 @@ export default {
       return errorResponse(404, "接口不存在", isHead);
     }
 
-    const target = (requestUrl.searchParams.get("target") || "clash").toLowerCase();
+    const target = resolveTarget(requestUrl.searchParams, request.headers);
     if (target !== "clash" && target !== "shadowrocket") {
       return errorResponse(400, "不支持的订阅目标", isHead);
     }

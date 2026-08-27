@@ -14,7 +14,10 @@ npm run dev
 根目录的 `worker.js` 是部署入口，实际实现位于 `src/worker/`。原有 Worker 服务保持不变：
 
 - `GET|HEAD /sub?token=...`：获取并转换上游订阅。
+- `GET|HEAD /sub?token=...&target=clash`：强制获取 Clash YAML。
 - `GET|HEAD /sub?token=...&target=shadowrocket`：获取 Shadowrocket Base64 节点订阅。
+
+显式 `target` 的优先级高于客户端 `User-Agent`。省略或留空 `target` 时，Worker 会自动识别客户端：UA 包含 `Shadowrocket` 时返回 Shadowrocket 节点订阅；包含 `Clash`、`Mihomo` 或 `Stash` 时返回 Clash YAML。空 UA、浏览器和其他未知客户端仍返回 Clash YAML，以兼容原有订阅链接。参数和 UA 匹配均不区分大小写。
 
 部署到 Cloudflare Workers 后，网站根路径 `/` 由 React 前端提供，`/sub` 与 `/sub/*` 会优先进入 Worker。新的订阅链接使用 10 位短 token，旧的 Base64 token 仍兼容。
 
