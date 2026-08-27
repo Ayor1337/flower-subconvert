@@ -16,6 +16,24 @@ const expectedProxyBlock = sourceYaml
 const defaultService = "1234567";
 const defaultId = "11111111-2222-3333-4444-555555555555";
 const defaultPassword = "fixture-relay-password";
+const defaultShortToken = "aZ8Kp2Qx_7";
+const tokenStore = new Map([
+  [
+    defaultShortToken,
+    JSON.stringify({
+      service: defaultService,
+      id: defaultId,
+      password: defaultPassword,
+    }),
+  ],
+]);
+const workerEnv = {
+  TOKENS: {
+    async get(key) {
+      return tokenStore.get(key) ?? null;
+    },
+  },
+};
 const expectedYaml =
   CONFIG_HEAD +
   buildRelayNode(defaultPassword) +
@@ -83,6 +101,26 @@ try {
   assert.equal(expireDate.getUTCDate(), 18);
   assert.equal(success.headers.get("x-subscription-reset-day"), "18");
   assert.equal(await success.text(), expectedYaml);
+
+  const shortTokenResult = await worker.fetch(
+    subscriptionRequest({ token: defaultShortToken }),
+    workerEnv,
+  );
+  assert.equal(shortTokenResult.status, 200);
+  assert.equal(await shortTokenResult.text(), expectedYaml);
+
+  const missingShortToken = await worker.fetch(
+    subscriptionRequest({ token: "Z9y8X7w6V5" }),
+    workerEnv,
+  );
+  assert.equal(missingShortToken.status, 400);
+
+  tokenStore.set("Q1w2E3r4T5", "not-json");
+  const malformedShortToken = await worker.fetch(
+    subscriptionRequest({ token: "Q1w2E3r4T5" }),
+    workerEnv,
+  );
+  assert.equal(malformedShortToken.status, 500);
 
   installFetchMock({ bandwidthOk: false });
   const noBalance = await worker.fetch(subscriptionRequest());
@@ -165,3 +203,4 @@ try {
   globalThis.fetch = realFetch;
   globalThis.Date = realDate;
 }
+
