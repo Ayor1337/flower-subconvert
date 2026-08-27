@@ -192,18 +192,25 @@ body::after {
 
 /* ---------- topbar ---------- */
 
+/* 顶栏全宽出血吸顶，内部再用与 page-shell 相同的宽度对齐 */
+/* 顶栏全宽吸顶；topbar-inner 与 page-shell 同参对齐 */
 .topbar {
   position: sticky;
   top: 0;
   z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: clamp(68px, 8vw, 84px);
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--paper) 84%, transparent);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(940px, calc(100% - clamp(32px, 6vw, 48px)));
+  margin: 0 auto;
+  height: clamp(68px, 8vw, 84px);
 }
 
 .brand {
@@ -553,6 +560,25 @@ h1 {
   font-weight: 700;
 }
 
+/* SVG 国旗：Windows 无国旗 emoji 字形，用矢量图保证全平台一致 */
+.flag {
+  display: inline-grid;
+  width: 21px;
+  height: 14px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  border-radius: 2.5px;
+  outline: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  outline-offset: -1px;
+  overflow: hidden;
+}
+
+.flag svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .node-region {
   display: inline-flex;
   align-items: center;
@@ -708,7 +734,7 @@ h1 {
     padding: clamp(52px, 14vw, 63px) 0 clamp(56px, 14vw, 68px);
   }
 
-  .topbar {
+  .topbar-inner {
     height: 64px;
   }
 
