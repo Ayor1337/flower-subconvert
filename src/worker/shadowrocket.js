@@ -65,7 +65,7 @@ function serializeSs(proxy) {
   const plugin = serializeSsPlugin(proxy);
   if (plugin) params.set("plugin", plugin);
   if (proxy.chain) params.set("chain", String(proxy.chain));
-  const query = params.size ? "/?" + params.toString() : "";
+  const query = params.size ? "/?" + encodeQuery(params) : "";
   return "ss://" + userInfo + "@" + endpoint + query + "#" + encodeURIComponent(readName(proxy));
 }
 
@@ -189,10 +189,14 @@ function buildStandardUri(scheme, credential, proxy, params) {
     "@" +
     formatEndpoint(proxy) +
     "?" +
-    params.toString() +
+    encodeQuery(params) +
     "#" +
     encodeURIComponent(readName(proxy))
   );
+}
+
+function encodeQuery(params) {
+  return params.toString().replace(/\+/g, "%20");
 }
 
 function appendTransportAndTls(params, proxy, network, tlsRequired = false) {

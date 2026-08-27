@@ -222,6 +222,8 @@ try {
     relayLink,
     /^ss:\/\/2022-blake3-aes-256-gcm:fixture-relay-password@oldyyz03451\.vgrapi\.xyz:50330\/\?chain=/,
   );
+  assert.match(relayLink, /chain=%F0%9F%87%BA%F0%9F%87%B8%20%E7%BE%8E%E5%9B%BD%40c57s3/);
+  assert.ok(!relayLink.includes("+"));
   assert.equal(new URL(relayLink).searchParams.get("chain"), "🇺🇸 美国@c57s3");
 
   const shadowrocketHead = await worker.fetch(
