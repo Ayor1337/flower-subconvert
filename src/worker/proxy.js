@@ -7,6 +7,12 @@ export function parseProxyUri(uri) {
   if (uri.startsWith("vless://")) {
     return parseVlessUri(uri);
   }
+  if (uri.startsWith("vmess://")) {
+    return parseVmessUri(uri);
+  }
+  if (uri.startsWith("trojan://")) {
+    return parseTrojanUri(uri);
+  }
   throw new Error("unsupported proxy scheme");
 }
 
@@ -15,6 +21,9 @@ function parseSsUri(uri) {
   const name = readNodeName(uri, hashIndex);
   let payload = uri.slice(5, hashIndex >= 0 ? hashIndex : undefined);
   const queryIndex = payload.indexOf("?");
+  const pluginValue = queryIndex >= 0
+    ? new URLSearchParams(payload.slice(queryIndex + 1)).get("plugin")
+    : "";
   if (queryIndex >= 0) {
     payload = payload.slice(0, queryIndex);
   }
@@ -42,7 +51,7 @@ function parseSsUri(uri) {
   }
 
   const serverUrl = new URL("http://" + endpoint);
-  return {
+  const proxy = {
     type: "ss",
     name,
     server: requireText(serverUrl.hostname, "ss server"),
@@ -50,6 +59,8 @@ function parseSsUri(uri) {
     cipher: requireText(credentials.slice(0, separator), "ss cipher"),
     password: credentials.slice(separator + 1),
   };
+  if (pluginValue) Object.assign(proxy, parseSsPlugin(pluginValue));
+  return proxy;
 }
 
 function parseVlessUri(uri) {
@@ -64,19 +75,105 @@ function parseVlessUri(uri) {
     port: requirePort(parsed.port),
     uuid: requireText(decodeURIComponent(parsed.username), "vless uuid"),
     flow: parsed.searchParams.get("flow") || "",
+    encryption: parsed.searchParams.get("encryption") || "none",
     network: parsed.searchParams.get("type") || "tcp",
     tls: reality || security === "tls",
     servername: parsed.searchParams.get("sni") || "",
     fingerprint: parsed.searchParams.get("fp") || "",
     publicKey: parsed.searchParams.get("pbk") || "",
     shortId: parsed.searchParams.get("sid") || "",
+    "skip-cert-verify": parsed.searchParams.get("allowInsecure") === "1",
+    "ws-opts": readWsOptions(parsed),
     reality,
   };
 }
 
+function parseVmessUri(uri) {
+  let config;
+  try {
+    config = JSON.parse(decodeBase64Text(uri.slice(8)));
+  } catch {
+    throw new Error("invalid vmess uri");
+  }
+  const network = config.net || "tcp";
+  return {
+    type: "vmess",
+    name: requireText(config.ps, "vmess name"),
+    server: requireText(config.add, "vmess server"),
+    port: requirePort(config.port),
+    uuid: requireText(config.id, "vmess uuid"),
+    alterId: Number(config.aid || 0),
+    cipher: config.scy || "auto",
+    network,
+    tls: config.tls === "tls",
+    servername: config.sni || "",
+    "skip-cert-verify": config.allowInsecure === 1 || config.allowInsecure === true,
+    "ws-opts": network === "ws"
+      ? { path: config.path || "/", headers: config.host ? { Host: config.host } : {} }
+      : {},
+  };
+}
+
+function parseTrojanUri(uri) {
+  const parsed = new URL(uri);
+  const network = parsed.searchParams.get("type") || "tcp";
+  return {
+    type: "trojan",
+    name: readNodeName(uri, uri.indexOf("#")),
+    server: requireText(parsed.hostname, "trojan server"),
+    port: requirePort(parsed.port || "443"),
+    password: requireText(decodeURIComponent(parsed.username), "trojan password"),
+    network,
+    tls: true,
+    servername: parsed.searchParams.get("sni") || "",
+    "skip-cert-verify": parsed.searchParams.get("allowInsecure") === "1",
+    "ws-opts": readWsOptions(parsed),
+  };
+}
+
+function readWsOptions(parsed) {
+  if ((parsed.searchParams.get("type") || "tcp") !== "ws") return {};
+  const host = parsed.searchParams.get("host") || "";
+  return {
+    path: parsed.searchParams.get("path") || "/",
+    headers: host ? { Host: host } : {},
+  };
+}
+
+function parseSsPlugin(value) {
+  const [rawName, ...rawOptions] = value.split(";");
+  const options = {};
+  for (const rawOption of rawOptions) {
+    const separator = rawOption.indexOf("=");
+    if (separator < 0) options[rawOption] = true;
+    else options[rawOption.slice(0, separator)] = rawOption.slice(separator + 1);
+  }
+  if (["simple-obfs", "obfs-local", "obfs"].includes(rawName)) {
+    return {
+      plugin: "obfs",
+      "plugin-opts": {
+        mode: options.obfs || options.mode || "",
+        host: options["obfs-host"] || options.host || "",
+      },
+    };
+  }
+  if (rawName === "v2ray-plugin") {
+    return {
+      plugin: rawName,
+      "plugin-opts": {
+        mode: options.mode || "websocket",
+        tls: Boolean(options.tls),
+        host: options.host || "",
+        path: options.path || "",
+      },
+    };
+  }
+  return { plugin: rawName, "plugin-opts": options };
+}
+
 export function serializeProxy(proxy) {
   if (proxy.type === "ss") {
-    return [
+    const lines = [
       "  - name: " + JSON.stringify(proxy.name),
       "    type: ss",
       "    server: " + JSON.stringify(proxy.server),
@@ -84,19 +181,31 @@ export function serializeProxy(proxy) {
       "    cipher: " + JSON.stringify(proxy.cipher),
       "    password: " + JSON.stringify(proxy.password),
       "    udp: true",
-    ].join("\n");
+    ];
+    appendPlugin(lines, proxy);
+    return lines.join("\n");
   }
 
+  const type = proxy.type;
   const lines = [
     "  - name: " + JSON.stringify(proxy.name),
-    "    type: vless",
+    "    type: " + type,
     "    server: " + JSON.stringify(proxy.server),
     "    port: " + proxy.port,
-    "    uuid: " + JSON.stringify(proxy.uuid),
-    "    flow: " + JSON.stringify(proxy.flow),
-    '    encryption: ""',
-    "    network: " + JSON.stringify(proxy.network),
   ];
+
+  if (type === "trojan") lines.push("    password: " + JSON.stringify(proxy.password));
+  else {
+    lines.push("    uuid: " + JSON.stringify(proxy.uuid));
+    if (type === "vmess") {
+      lines.push("    alterId: " + (proxy.alterId || 0));
+      lines.push("    cipher: " + JSON.stringify(proxy.cipher || "auto"));
+    } else {
+      lines.push("    flow: " + JSON.stringify(proxy.flow || ""));
+      lines.push("    encryption: " + JSON.stringify(proxy.encryption || "none"));
+    }
+  }
+  lines.push("    network: " + JSON.stringify(proxy.network || "tcp"));
 
   if (proxy.tls) {
     lines.push("    tls: true");
@@ -107,6 +216,8 @@ export function serializeProxy(proxy) {
   if (proxy.fingerprint) {
     lines.push("    client-fingerprint: " + JSON.stringify(proxy.fingerprint));
   }
+  if (proxy["skip-cert-verify"]) lines.push("    skip-cert-verify: true");
+  appendWsOptions(lines, proxy);
   if (proxy.reality) {
     if (!proxy.publicKey || !proxy.shortId) {
       throw new Error("incomplete reality parameters");
@@ -117,6 +228,29 @@ export function serializeProxy(proxy) {
   }
 
   return lines.join("\n");
+}
+
+function appendWsOptions(lines, proxy) {
+  if (proxy.network !== "ws") return;
+  const options = proxy["ws-opts"] || {};
+  lines.push("    ws-opts:");
+  lines.push("      path: " + JSON.stringify(options.path || "/"));
+  const host = options.headers?.Host || options.headers?.host;
+  if (host) {
+    lines.push("      headers:");
+    lines.push("        Host: " + JSON.stringify(host));
+  }
+}
+
+function appendPlugin(lines, proxy) {
+  if (!proxy.plugin) return;
+  lines.push("    plugin: " + JSON.stringify(proxy.plugin));
+  const options = proxy["plugin-opts"] || {};
+  if (!Object.keys(options).length) return;
+  lines.push("    plugin-opts:");
+  for (const [key, value] of Object.entries(options)) {
+    lines.push("      " + key + ": " + JSON.stringify(value));
+  }
 }
 
 function readNodeName(uri, hashIndex) {

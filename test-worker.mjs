@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { CONFIG_HEAD, FIXED_TAIL } from "./src/worker/config.generated.js";
 import { buildRelayNode } from "./src/worker/relay.js";
+import { serializeShadowrocketProxy } from "./src/worker/shadowrocket.js";
 
 const workerModule = await import(new URL(`./worker.js?test=${Date.now()}`, import.meta.url));
 const worker = workerModule.default;
@@ -79,6 +80,7 @@ function subscriptionRequest(params = {}) {
   const password = params.password ?? defaultPassword;
   const token = params.token ?? Buffer.from(`${service}|${id}|${password}`, "utf8").toString("base64");
   url.searchParams.set("token", token);
+  if (params.target !== undefined) url.searchParams.set("target", params.target);
   return new Request(url);
 }
 
@@ -91,9 +93,10 @@ try {
     "attachment; filename*=UTF-8''JustMySocks",
   );
   const subscriptionInfo = success.headers.get("subscription-userinfo");
+  // 上游字节经 2^30/10^9 放大：500e9 → 536870912000，62665088049 → 67286125943
   assert.match(
     subscriptionInfo,
-    /^upload=0; download=62665088049; total=500000000000; expire=\d+$/,
+    /^upload=0; download=67286125943; total=536870912000; expire=\d+$/,
   );
   const expire = Number(subscriptionInfo.match(/expire=(\d+)/)[1]);
   const expireDate = new Date(expire * 1000);
@@ -102,6 +105,143 @@ try {
   assert.equal(success.headers.get("x-subscription-reset-day"), "18");
   assert.equal(await success.text(), expectedYaml);
 
+  installFetchMock();
+  const explicitClash = await worker.fetch(subscriptionRequest({ target: "ClAsH" }));
+  assert.equal(explicitClash.status, 200);
+  assert.equal(explicitClash.headers.get("content-type"), "text/yaml; charset=utf-8");
+  assert.equal(await explicitClash.text(), expectedYaml);
+
+  const unsupportedTarget = await worker.fetch(subscriptionRequest({ target: "surge" }));
+  assert.equal(unsupportedTarget.status, 400);
+
+  const shadowrocketYaml = `proxies:
+  - name: "JMS-100@c57s1.example:10001"
+    type: ss
+    server: "2001:db8::1"
+    port: 10001
+    cipher: "aes-256-gcm"
+    password: "a+b/=quoted"
+    plugin: obfs
+    plugin-opts:
+      mode: http
+      host: "cdn.example.com"
+  - name: "JMS-100@c57s2.example:443"
+    type: vmess
+    server: "192.0.2.2"
+    port: 443
+    uuid: "11111111-2222-3333-4444-555555555555"
+    alterId: 0
+    cipher: auto
+    network: ws
+    tls: true
+    servername: "origin.example.com"
+    ws-opts:
+      path: "/vmess 路径"
+      headers:
+        Host: "origin.example.com"
+  - name: "JMS-100@c57s3.example:443"
+    type: vless
+    server: "192.0.2.3"
+    port: 443
+    uuid: "11111111-2222-3333-4444-555555555555"
+    encryption: none
+    flow: xtls-rprx-vision
+    network: tcp
+    tls: true
+    servername: "vless.example.com"
+  - name: "JMS-100@c57s4.example:443"
+    type: trojan
+    server: "192.0.2.4"
+    port: 443
+    password: "trojan@password"
+    network: ws
+    servername: "trojan.example.com"
+    skip-cert-verify: true
+    ws-opts:
+      path: "/trojan"
+      headers:
+        Host: "trojan.example.com"
+  - name: "JMS-100@c57s5.example:1080"
+    type: socks5
+    server: "192.0.2.5"
+    port: 1080
+  - name: "JMS-100@c57s801.example:443"
+    type: vmess
+    server: "192.0.2.6"
+    port: 443
+    uuid: "11111111-2222-3333-4444-555555555555"
+    network: grpc
+`;
+  installFetchMock({ subscriptionBody: shadowrocketYaml });
+  const shadowrocket = await worker.fetch(subscriptionRequest({ target: "ShAdOwRoCkEt" }));
+  assert.equal(shadowrocket.status, 200);
+  assert.equal(shadowrocket.headers.get("content-type"), "text/plain; charset=utf-8");
+  assert.equal(shadowrocket.headers.get("x-subscription-skipped"), "2");
+  assert.match(shadowrocket.headers.get("content-disposition"), /JustMySocks\.txt/);
+  const shadowrocketLinks = Buffer.from(await shadowrocket.text(), "base64").toString("utf8").split("\n");
+  assert.equal(shadowrocketLinks.length, 5);
+
+  const ssLink = shadowrocketLinks.find((link) => link.startsWith("ss://"));
+  assert.match(ssLink, /@\[2001:db8::1\]:10001\/\?plugin=/);
+  const ssUserInfo = ssLink.slice(5, ssLink.indexOf("@"));
+  assert.equal(Buffer.from(ssUserInfo.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(), "aes-256-gcm:a+b/=quoted");
+  assert.match(decodeURIComponent(new URL(ssLink).searchParams.get("plugin")), /simple-obfs;obfs=http;obfs-host=cdn\.example\.com/);
+
+  const vmessLink = shadowrocketLinks.find((link) => link.startsWith("vmess://"));
+  const vmessConfig = JSON.parse(Buffer.from(vmessLink.slice(8), "base64").toString("utf8"));
+  assert.equal(vmessConfig.add, "192.0.2.2");
+  assert.equal(vmessConfig.sni, "origin.example.com");
+  assert.equal(vmessConfig.host, "origin.example.com");
+  assert.equal(vmessConfig.path, "/vmess 路径");
+
+  const vlessLink = new URL(shadowrocketLinks.find((link) => link.startsWith("vless://")));
+  assert.equal(vlessLink.hostname, "192.0.2.3");
+  assert.equal(vlessLink.searchParams.get("security"), "tls");
+  assert.equal(vlessLink.searchParams.get("sni"), "vless.example.com");
+  assert.equal(vlessLink.searchParams.get("flow"), "xtls-rprx-vision");
+
+  const trojanLink = new URL(shadowrocketLinks.find((link) => link.startsWith("trojan://")));
+  assert.equal(trojanLink.hostname, "192.0.2.4");
+  assert.equal(trojanLink.searchParams.get("host"), "trojan.example.com");
+  assert.equal(trojanLink.searchParams.get("path"), "/trojan");
+  assert.equal(trojanLink.searchParams.get("allowInsecure"), "1");
+
+  const relayLink = shadowrocketLinks.find((link) => link.includes("%E5%8A%A0%E6%8B%BF%E5%A4%A7%40relay"));
+  assert.match(
+    relayLink,
+    /^ss:\/\/2022-blake3-aes-256-gcm:fixture-relay-password@oldyyz03451\.vgrapi\.xyz:50330\/\?chain=/,
+  );
+  assert.equal(new URL(relayLink).searchParams.get("chain"), "🇺🇸 美国@c57s3");
+
+  const shadowrocketHead = await worker.fetch(
+    new Request(subscriptionRequest({ target: "shadowrocket" }), { method: "HEAD" }),
+  );
+  assert.equal(shadowrocketHead.status, 200);
+  assert.equal(shadowrocketHead.headers.get("x-subscription-skipped"), "2");
+  assert.equal(await shadowrocketHead.text(), "");
+
+  const unsupportedOnlyYaml = `proxies:\n${["c57s1", "c57s2", "c57s3", "c57s4", "c57s5", "c57s801"]
+    .map((code, index) => `  - name: "JMS-100@${code}.example:1080"\n    type: socks5\n    server: "192.0.2.${index + 1}"\n    port: 1080`)
+    .join("\n")}\n`;
+  installFetchMock({ subscriptionBody: unsupportedOnlyYaml });
+  const noShadowrocketNodes = await worker.fetch(subscriptionRequest({ target: "shadowrocket" }));
+  assert.equal(noShadowrocketNodes.status, 422);
+  assert.equal(noShadowrocketNodes.headers.get("x-subscription-skipped"), "6");
+
+  const ss2022Link = serializeShadowrocketProxy({
+    type: "ss",
+    name: "2022 节点",
+    server: "192.0.2.20",
+    port: 443,
+    cipher: "2022-blake3-aes-256-gcm",
+    password: "a+b/secret",
+  });
+  assert.match(
+    ss2022Link,
+    /^ss:\/\/2022-blake3-aes-256-gcm:a%2Bb%2Fsecret@192\.0\.2\.20:443#2022%20%E8%8A%82%E7%82%B9$/,
+  );
+
+  installFetchMock();
   const shortTokenResult = await worker.fetch(
     subscriptionRequest({ token: defaultShortToken }),
     workerEnv,
@@ -187,6 +327,19 @@ try {
   assert.match(encodedYaml, /server: "192\.0\.2\.1"/);
   assert.match(encodedYaml, /public-key: "test-public-key"/);
   assert.match(encodedYaml, /password: "relay-password"/);
+
+  const encodedShadowrocket = await worker.fetch(
+    subscriptionRequest({ id: syntheticId, password: "relay-password", target: "shadowrocket" }),
+  );
+  assert.equal(encodedShadowrocket.status, 200);
+  assert.equal(encodedShadowrocket.headers.get("x-subscription-skipped"), "4");
+  const encodedShadowrocketLinks = Buffer.from(
+    await encodedShadowrocket.text(),
+    "base64",
+  ).toString("utf8").split("\n");
+  assert.equal(encodedShadowrocketLinks.length, 2);
+  assert.ok(encodedShadowrocketLinks.every((link) => link.startsWith("ss://")));
+  assert.ok(encodedShadowrocketLinks.every((link) => !link.includes("%E5%8A%A0%E6%8B%BF%E5%A4%A7%40relay")));
 
   installFetchMock();
   const specialPassword = 'a+b/="quoted"';

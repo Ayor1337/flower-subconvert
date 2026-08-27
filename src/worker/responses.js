@@ -3,7 +3,9 @@ export function helpResponse(isHead) {
     "flower-sub 动态订阅服务",
     "",
     "GET /sub?token=<10 位短 token>",
+    "GET /sub?token=<10 位短 token>&target=shadowrocket",
     "",
+    "省略 target 或使用 target=clash 时返回 Clash YAML；target=shadowrocket 返回节点订阅。",
     "短 token 由 Cloudflare KV 映射到订阅凭据，请将完整订阅 URL 视为敏感信息。",
   ].join("\n");
 
