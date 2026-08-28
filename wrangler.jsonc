@@ -21,6 +21,7 @@
     {
       "binding": "HISTORY_DB",
       "database_name": "flower-sub-history",
+      "database_id": "8aace2dd-83bb-4d1f-9523-9291ef959583",
       "migrations_dir": "migrations"
     }
   ],
