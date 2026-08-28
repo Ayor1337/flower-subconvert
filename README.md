@@ -19,14 +19,46 @@ npm run dev
 
 显式 `target` 的优先级高于客户端 `User-Agent`。省略或留空 `target` 时，Worker 会自动识别客户端：UA 包含 `Shadowrocket` 时返回 Shadowrocket 节点订阅；包含 `Clash`、`Mihomo` 或 `Stash` 时返回 Clash YAML。空 UA、浏览器和其他未知客户端仍返回 Clash YAML，以兼容原有订阅链接。参数和 UA 匹配均不区分大小写。
 
-部署到 Cloudflare Workers 后，网站根路径 `/` 由 React 前端提供，`/sub` 与 `/sub/*` 会优先进入 Worker。新的订阅链接使用 10 位短 token，旧的 Base64 token 仍兼容。
+部署到 Cloudflare Workers 后，网站根路径 `/` 由 React 前端提供，`/sub` 与 `/sub/*` 会优先进入 Worker。订阅链接只接受 Cloudflare KV 中存在的 10 位 URL-safe 短 token；旧的 Base64 token 已停止支持。
 
 短 token 存放在名为 `TOKENS` 的 Cloudflare KV binding 中：
 
 - KV key：10 位 URL-safe token，例如 `aZ8Kp2Qx_7`
 - KV value：`{"service":"...","id":"...","password":"..."}`
 
-其中 `password` 是加拿大 Relay 密码。凭据只应写入 Cloudflare KV，不要提交到 GitHub。
+其中 `password` 是加拿大 Relay 密码。凭据只应写入 Cloudflare KV，不要提交到 GitHub。完整订阅 URL 是 bearer credential，不得写入日志、截图或工单；怀疑泄露时应删除对应 KV key 并生成新 token。
+
+### 订阅 IP 历史
+
+TOKEN 鉴权成功后的每次 `GET|HEAD /sub` 都会把请求 IP、请求时间、方法和最终 HTTP 状态码异步写入 D1，包括上游或转换失败的请求。历史写入失败不会中断订阅，缺少或无效 TOKEN 的请求不会记录。记录只保留 72 小时。
+
+历史接口不接受查询串 TOKEN，只接受 `Authorization` 请求头：
+
+```bash
+curl -H "Authorization: Bearer <短 token>" \
+  "https://你的域名/sub/history?limit=100"
+```
+
+成功响应按时间倒序返回：
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "ip": "203.0.113.10",
+        "requestedAt": "2026-08-28T04:00:00.000Z",
+        "method": "GET",
+        "statusCode": 200,
+        "success": true
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+`limit` 默认 100，范围为 1–500。有下一页时，把响应中的不透明 `nextCursor` 原样作为 `cursor` 查询参数传回。缺少或使用错误 TOKEN 时接口统一返回 `404`。主页也提供手动查询区，TOKEN 仅保存在当前 React 组件内存中，并通过 Authorization 请求头发送；不会写入 URL 或 localStorage，刷新或清除后即消失。
 
 可以用 Node.js 生成一个 10 位随机 token：
 
@@ -91,11 +123,22 @@ Create a `Subscribe` entry in Shadowrocket and append `target=shadowrocket` to t
 - 部署命令：`npx wrangler deploy`
 - 根目录：仓库根目录
 
+首次启用历史记录时，先创建 D1 并把命令返回的 `database_id` 加入 `wrangler.jsonc` 的 `HISTORY_DB` 配置，再应用迁移：
+
+```bash
+npx wrangler d1 create flower-sub-history
+npx wrangler d1 migrations apply flower-sub-history --remote
+```
+
+当前配置省略 `database_id`，Wrangler 4.45+ 部署时也可以自动创建 D1 并回写 ID；这种方式首次部署后仍需立即执行上面的远程迁移。生产环境建议显式创建、先迁移再部署，避免历史接口在表创建前短暂返回 `503`。
+
 部署时请继续将现有自定义域名绑定到该 Worker。也可以在本地执行：
 
 ```bash
 npm run deploy
 ```
+
+生产环境仅使用自定义域名，`workers.dev` 与 Preview URL 已在 `wrangler.jsonc` 中关闭。`/sub` 和 `/sub/history` 的 WAF、限流、验证及回滚步骤见 [请求防护运维说明](doc/request-protection.md)。
 
 ## 检查
 

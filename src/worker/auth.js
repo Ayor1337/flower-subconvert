@@ -1,19 +1,32 @@
-import { decodeBase64Text } from "./base64.js";
-
 const SHORT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{10}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function readCredentialsFromToken(searchParams, env = {}) {
   const token = (searchParams.get("token") || "").trim();
+  return readCredentialsForToken(token, env);
+}
+
+export async function readCredentialsFromAuthorization(headers, env = {}) {
+  const authorization = (headers.get("authorization") || "").trim();
+  const match = /^Bearer ([A-Za-z0-9_-]{10})$/i.exec(authorization);
+  if (!match) {
+    return { error: "token 无效或已失效" };
+  }
+
+  const credentials = await readCredentialsForToken(match[1], env);
+  return credentials.error ? credentials : { ...credentials, token: match[1] };
+}
+
+async function readCredentialsForToken(token, env) {
   if (!token) {
     return { error: "必须提供 token 字段" };
   }
 
-  if (SHORT_TOKEN_PATTERN.test(token)) {
-    return readShortToken(token, env);
+  if (!SHORT_TOKEN_PATTERN.test(token)) {
+    return { error: "token 无效或已失效" };
   }
 
-  return readLegacyToken(token);
+  return readShortToken(token, env);
 }
 
 async function readShortToken(token, env) {
@@ -29,7 +42,7 @@ async function readShortToken(token, env) {
   }
 
   if (storedValue === null) {
-    return { error: "短 token 不存在或已失效" };
+    return { error: "token 无效或已失效" };
   }
 
   let record;
@@ -40,31 +53,6 @@ async function readShortToken(token, env) {
   }
 
   return validateCredentials(record);
-}
-
-function readLegacyToken(token) {
-  const normalizedToken = token.replace(/ /g, "+");
-  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(normalizedToken)) {
-    return { error: "token 不是有效的 Base64" };
-  }
-
-  let decoded;
-  try {
-    decoded = decodeBase64Text(normalizedToken);
-  } catch {
-    return { error: "token 无法按 UTF-8 Base64 解码" };
-  }
-
-  const fields = decoded.split("|");
-  if (fields.length !== 3) {
-    return { error: "token 原文必须是 service|id|password" };
-  }
-
-  return validateCredentials({
-    service: fields[0],
-    id: fields[1],
-    password: fields[2],
-  });
 }
 
 function validateCredentials(record) {

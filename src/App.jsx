@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Flag from "./Flag.jsx";
+import History from "./History.jsx";
 
 const nodes = [
   { flag: "us", name: "美国@c57s1", region: "美国 · c57s1" },
@@ -182,6 +183,8 @@ function App() {
             客户端实测为准。
           </p>
         </section>
+
+        <History />
 
         <footer className="footer" data-reveal>
           <span className="footer-brand">flower-sub</span>

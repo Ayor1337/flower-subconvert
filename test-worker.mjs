@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { CONFIG_HEAD, FIXED_TAIL } from "./src/worker/config.generated.js";
+import { hashToken } from "./src/worker/history.js";
 import { buildRelayNode } from "./src/worker/relay.js";
 import { serializeShadowrocketProxy } from "./src/worker/shadowrocket.js";
 
 const workerModule = await import(new URL(`./worker.js?test=${Date.now()}`, import.meta.url));
-const worker = workerModule.default;
+const deployedWorker = workerModule.default;
 const sourceYaml = await readFile(
   new URL("./test/fixtures/subscription.txt", import.meta.url),
   "utf8",
@@ -28,11 +29,99 @@ const tokenStore = new Map([
     }),
   ],
 ]);
+class HistoryDatabase {
+  constructor() {
+    this.events = [];
+    this.nextId = 1;
+    this.failReads = false;
+    this.failWrites = false;
+    this.readCount = 0;
+  }
+
+  prepare(sql) {
+    return {
+      bind: (...values) => ({
+        all: async () => this.#all(sql, values),
+        run: async () => this.#run(sql, values),
+      }),
+    };
+  }
+
+  reset() {
+    this.events = [];
+    this.nextId = 1;
+    this.failReads = false;
+    this.failWrites = false;
+    this.readCount = 0;
+  }
+
+  async #all(sql, values) {
+    if (this.failReads) throw new Error("D1 read unavailable");
+    if (!sql.includes("SELECT id, ip, requested_at, method, status_code")) {
+      throw new Error(`Unexpected D1 query: ${sql}`);
+    }
+    this.readCount += 1;
+
+    const [tokenHash, cutoff] = values;
+    const hasCursor = sql.includes("id < ?4");
+    const cursorTime = hasCursor ? values[2] : null;
+    const cursorId = hasCursor ? values[3] : null;
+    const limit = values[values.length - 1];
+    const results = this.events
+      .filter((event) => event.token_hash === tokenHash && event.requested_at >= cutoff)
+      .filter((event) => !hasCursor ||
+        event.requested_at < cursorTime ||
+        (event.requested_at === cursorTime && event.id < cursorId))
+      .sort((left, right) =>
+        right.requested_at - left.requested_at || right.id - left.id
+      )
+      .slice(0, limit)
+      .map((event) => ({ ...event }));
+    return { results, success: true };
+  }
+
+  async #run(sql, values) {
+    if (sql.includes("INSERT INTO subscription_ip_events")) {
+      if (this.failWrites) throw new Error("D1 write unavailable");
+      const [tokenHash, ip, requestedAt, method, statusCode] = values;
+      this.events.push({
+        id: this.nextId++,
+        ip,
+        method,
+        requested_at: requestedAt,
+        status_code: statusCode,
+        token_hash: tokenHash,
+      });
+      return { success: true };
+    }
+    if (sql.includes("DELETE FROM subscription_ip_events")) {
+      if (this.failWrites) throw new Error("D1 write unavailable");
+      const [cutoff] = values;
+      this.events = this.events.filter((event) => event.requested_at >= cutoff);
+      return { success: true };
+    }
+    throw new Error(`Unexpected D1 statement: ${sql}`);
+  }
+}
+
+const historyDb = new HistoryDatabase();
+const pendingTasks = [];
+const executionContext = {
+  waitUntil(task) {
+    pendingTasks.push(task);
+  },
+};
 const workerEnv = {
+  HISTORY_DB: historyDb,
   TOKENS: {
     async get(key) {
       return tokenStore.get(key) ?? null;
     },
+  },
+};
+const worker = {
+  fetch(request, env = workerEnv, context = executionContext) {
+    return deployedWorker.fetch(request, env, context);
   },
 };
 const expectedYaml =
@@ -46,6 +135,8 @@ const expectedYaml =
 
 const realFetch = globalThis.fetch;
 const realDate = globalThis.Date;
+let upstreamFetchCount = 0;
+let tokenSequence = 0;
 
 function installFetchMock({
   bandwidthOk = true,
@@ -53,7 +144,9 @@ function installFetchMock({
   subscriptionBody = sourceYaml,
   subscriptionOk = true,
 } = {}) {
+  upstreamFetchCount = 0;
   globalThis.fetch = async (input) => {
+    upstreamFetchCount += 1;
     const url = String(input);
     if (url.startsWith("https://jmssub.net/members/getsub.php")) {
       return subscriptionOk
@@ -78,13 +171,49 @@ function subscriptionRequest(params = {}) {
   const service = params.service ?? defaultService;
   const id = params.id ?? defaultId;
   const password = params.password ?? defaultPassword;
-  const token = params.token ?? Buffer.from(`${service}|${id}|${password}`, "utf8").toString("base64");
+  let token = params.token;
+  if (token === undefined) {
+    const usesDefaultCredentials = service === defaultService &&
+      id === defaultId &&
+      password === defaultPassword;
+    token = usesDefaultCredentials
+      ? defaultShortToken
+      : `T${String(++tokenSequence).padStart(9, "0")}`;
+    tokenStore.set(token, JSON.stringify({ service, id, password }));
+  }
   url.searchParams.set("token", token);
   if (params.target !== undefined) url.searchParams.set("target", params.target);
-  const headers = params.userAgent === undefined
-    ? undefined
-    : { "User-Agent": params.userAgent };
+  const headers = new Headers();
+  if (params.ip !== null) {
+    headers.set("CF-Connecting-IP", params.ip || "203.0.113.10");
+  }
+  if (params.userAgent !== undefined) {
+    headers.set("User-Agent", params.userAgent);
+  }
   return new Request(url, { headers, method: params.method || "GET" });
+}
+
+function historyRequest({
+  cursor,
+  limit,
+  method = "GET",
+  queryToken,
+  token = defaultShortToken,
+} = {}) {
+  const url = new URL("https://flower-sub.example/sub/history");
+  if (cursor !== undefined) url.searchParams.set("cursor", cursor);
+  if (limit !== undefined) url.searchParams.set("limit", limit);
+  if (queryToken !== undefined) url.searchParams.set("token", queryToken);
+  const headers = token === null
+    ? undefined
+    : { Authorization: `Bearer ${token}` };
+  return new Request(url, { headers, method });
+}
+
+async function flushBackgroundTasks() {
+  while (pendingTasks.length) {
+    await Promise.all(pendingTasks.splice(0));
+  }
 }
 
 try {
@@ -307,6 +436,19 @@ try {
     workerEnv,
   );
   assert.equal(missingShortToken.status, 400);
+  assert.deepEqual(await missingShortToken.json(), { error: "token 无效或已失效" });
+
+  installFetchMock();
+  const legacyToken = Buffer.from(
+    `${defaultService}|${defaultId}|${defaultPassword}`,
+    "utf8",
+  ).toString("base64");
+  const legacyTokenResult = await worker.fetch(
+    subscriptionRequest({ token: legacyToken }),
+  );
+  assert.equal(legacyTokenResult.status, 400);
+  assert.deepEqual(await legacyTokenResult.json(), { error: "token 无效或已失效" });
+  assert.equal(upstreamFetchCount, 0);
 
   tokenStore.set("Q1w2E3r4T5", "not-json");
   const malformedShortToken = await worker.fetch(
@@ -314,6 +456,18 @@ try {
     workerEnv,
   );
   assert.equal(malformedShortToken.status, 500);
+
+  const missingTokenBinding = await deployedWorker.fetch(subscriptionRequest(), {});
+  assert.equal(missingTokenBinding.status, 503);
+
+  const unavailableTokenStore = await deployedWorker.fetch(subscriptionRequest(), {
+    TOKENS: {
+      async get() {
+        throw new Error("KV unavailable");
+      },
+    },
+  });
+  assert.equal(unavailableTokenStore.status, 503);
 
   installFetchMock({ bandwidthOk: false });
   const noBalance = await worker.fetch(subscriptionRequest());
@@ -336,11 +490,6 @@ try {
 
   const badToken = await worker.fetch(subscriptionRequest({ token: "not-base64!" }));
   assert.equal(badToken.status, 400);
-
-  const badTokenShape = await worker.fetch(
-    subscriptionRequest({ token: Buffer.from("only|two", "utf8").toString("base64") }),
-  );
-  assert.equal(badTokenShape.status, 400);
 
   const fixedNow = Date.UTC(2026, 3, 30, 12, 0, 0);
   globalThis.Date = class extends realDate {
@@ -415,6 +564,220 @@ try {
   const escaped = await worker.fetch(subscriptionRequest({ password: specialPassword }));
   assert.equal(escaped.status, 200);
   assert.ok((await escaped.text()).includes('password: "a+b/=\\"quoted\\""'));
+
+  await flushBackgroundTasks();
+  historyDb.reset();
+
+  installFetchMock();
+  const recordedSuccess = await worker.fetch(subscriptionRequest({ ip: "198.51.100.10" }));
+  assert.equal(recordedSuccess.status, 200);
+  await flushBackgroundTasks();
+
+  installFetchMock();
+  const recordedHead = await worker.fetch(subscriptionRequest({
+    ip: "2001:db8::10",
+    method: "HEAD",
+  }));
+  assert.equal(recordedHead.status, 200);
+  await flushBackgroundTasks();
+
+  installFetchMock({ subscriptionOk: false });
+  const recordedFailure = await worker.fetch(subscriptionRequest({ ip: "198.51.100.11" }));
+  assert.equal(recordedFailure.status, 502);
+  await flushBackgroundTasks();
+
+  const recordedBadTarget = await worker.fetch(subscriptionRequest({
+    ip: "198.51.100.12",
+    target: "surge",
+  }));
+  assert.equal(recordedBadTarget.status, 400);
+  await flushBackgroundTasks();
+
+  assert.deepEqual(
+    historyDb.events.map(({ ip, method, status_code: statusCode }) => ({
+      ip,
+      method,
+      statusCode,
+    })),
+    [
+      { ip: "198.51.100.10", method: "GET", statusCode: 200 },
+      { ip: "2001:db8::10", method: "HEAD", statusCode: 200 },
+      { ip: "198.51.100.11", method: "GET", statusCode: 502 },
+      { ip: "198.51.100.12", method: "GET", statusCode: 400 },
+    ],
+  );
+  assert.equal(historyDb.events[0].token_hash, await hashToken(defaultShortToken));
+  assert.ok(!JSON.stringify(historyDb.events).includes(defaultShortToken));
+
+  const eventCount = historyDb.events.length;
+  const invalidSubscription = await worker.fetch(
+    subscriptionRequest({ token: "Z9y8X7w6V5" }),
+  );
+  assert.equal(invalidSubscription.status, 400);
+  const rejectedMethod = await worker.fetch(subscriptionRequest({ method: "POST" }));
+  assert.equal(rejectedMethod.status, 405);
+  await flushBackgroundTasks();
+  assert.equal(historyDb.events.length, eventCount);
+
+  const firstHistoryPage = await worker.fetch(historyRequest({ limit: "2" }));
+  assert.equal(firstHistoryPage.status, 200);
+  assert.equal(firstHistoryPage.headers.get("cache-control"), "no-store");
+  assert.equal(
+    firstHistoryPage.headers.get("content-type"),
+    "application/json; charset=utf-8",
+  );
+  const firstHistoryData = (await firstHistoryPage.json()).data;
+  assert.equal(firstHistoryData.items.length, 2);
+  assert.equal(firstHistoryData.items[0].ip, "198.51.100.12");
+  assert.equal(firstHistoryData.items[0].statusCode, 400);
+  assert.equal(firstHistoryData.items[0].success, false);
+  assert.equal(firstHistoryData.items[1].ip, "198.51.100.11");
+  assert.equal(firstHistoryData.items[1].success, false);
+  assert.equal(typeof firstHistoryData.nextCursor, "string");
+
+  const secondHistoryPage = await worker.fetch(historyRequest({
+    cursor: firstHistoryData.nextCursor,
+    limit: "2",
+  }));
+  const secondHistoryData = (await secondHistoryPage.json()).data;
+  assert.deepEqual(
+    secondHistoryData.items.map((item) => item.ip),
+    ["2001:db8::10", "198.51.100.10"],
+  );
+  assert.equal(secondHistoryData.nextCursor, null);
+  assert.match(secondHistoryData.items[0].requestedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  const historyReads = historyDb.readCount;
+  const queryTokenOnly = await worker.fetch(historyRequest({
+    queryToken: defaultShortToken,
+    token: null,
+  }));
+  assert.equal(queryTokenOnly.status, 404);
+  assert.deepEqual(await queryTokenOnly.json(), { error: "接口不存在" });
+  const missingAuthorization = await worker.fetch(historyRequest({ token: null }));
+  assert.equal(missingAuthorization.status, 404);
+  const invalidAuthorization = await worker.fetch(historyRequest({ token: "Z9y8X7w6V5" }));
+  assert.equal(invalidAuthorization.status, 404);
+  const unavailableTokenStoreForHistory = await worker.fetch(historyRequest(), {
+    HISTORY_DB: historyDb,
+    TOKENS: {
+      async get() {
+        throw new Error("KV unavailable");
+      },
+    },
+  });
+  assert.equal(unavailableTokenStoreForHistory.status, 404);
+  assert.equal(historyDb.readCount, historyReads);
+
+  const historyHead = await worker.fetch(historyRequest({ method: "HEAD" }));
+  assert.equal(historyHead.status, 405);
+  assert.equal(historyHead.headers.get("allow"), "GET");
+  const invalidLimit = await worker.fetch(historyRequest({ limit: "501" }));
+  assert.equal(invalidLimit.status, 400);
+  const invalidCursor = await worker.fetch(historyRequest({ cursor: "not-a-cursor" }));
+  assert.equal(invalidCursor.status, 400);
+
+  const originalWarn = console.warn;
+  const capturedWarnings = [];
+  console.warn = (...args) => capturedWarnings.push(args);
+  try {
+    const missingHistoryBinding = await worker.fetch(historyRequest(), {
+      TOKENS: workerEnv.TOKENS,
+    });
+    assert.equal(missingHistoryBinding.status, 503);
+
+    historyDb.failReads = true;
+    const failedHistoryRead = await worker.fetch(historyRequest());
+    assert.equal(failedHistoryRead.status, 503);
+    historyDb.failReads = false;
+
+    historyDb.failWrites = true;
+    installFetchMock();
+    const failedHistoryWrite = await worker.fetch(subscriptionRequest());
+    assert.equal(failedHistoryWrite.status, 200);
+    await flushBackgroundTasks();
+    historyDb.failWrites = false;
+
+    const missingIp = await worker.fetch(subscriptionRequest({ ip: null }));
+    assert.equal(missingIp.status, 200);
+    await flushBackgroundTasks();
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.ok(capturedWarnings.some(([message]) =>
+    message === "Failed to read subscription history"
+  ));
+  assert.ok(capturedWarnings.some(([message]) =>
+    message === "Failed to record subscription history"
+  ));
+  assert.ok(capturedWarnings.some(([message]) =>
+    message === "Skipping subscription history: CF-Connecting-IP is missing"
+  ));
+
+  historyDb.reset();
+  installFetchMock({ subscriptionBody: "not a subscription" });
+  const recordedConversionFailure = await worker.fetch(subscriptionRequest({
+    ip: "198.51.100.13",
+  }));
+  assert.equal(recordedConversionFailure.status, 502);
+  await flushBackgroundTasks();
+  assert.deepEqual(
+    historyDb.events.map(({ ip, status_code: statusCode }) => ({ ip, statusCode })),
+    [{ ip: "198.51.100.13", statusCode: 502 }],
+  );
+
+  historyDb.reset();
+  const currentTime = Date.now();
+  const tokenHash = await hashToken(defaultShortToken);
+  historyDb.events = [
+    {
+      id: 1,
+      ip: "198.51.100.20",
+      method: "GET",
+      requested_at: currentTime,
+      status_code: 200,
+      token_hash: tokenHash,
+    },
+    {
+      id: 2,
+      ip: "198.51.100.21",
+      method: "GET",
+      requested_at: currentTime,
+      status_code: 502,
+      token_hash: tokenHash,
+    },
+    {
+      id: 3,
+      ip: "198.51.100.22",
+      method: "GET",
+      requested_at: currentTime - 72 * 60 * 60 * 1000 - 1,
+      status_code: 200,
+      token_hash: tokenHash,
+    },
+  ];
+  historyDb.nextId = 4;
+
+  const sameMillisecondPage = await worker.fetch(historyRequest({ limit: "1" }));
+  const sameMillisecondData = (await sameMillisecondPage.json()).data;
+  assert.deepEqual(
+    sameMillisecondData.items.map((item) => item.ip),
+    ["198.51.100.21"],
+  );
+  const sameMillisecondNext = await worker.fetch(historyRequest({
+    cursor: sameMillisecondData.nextCursor,
+    limit: "1",
+  }));
+  assert.deepEqual(
+    (await sameMillisecondNext.json()).data.items.map((item) => item.ip),
+    ["198.51.100.20"],
+  );
+
+  await deployedWorker.scheduled({}, workerEnv, executionContext);
+  await flushBackgroundTasks();
+  assert.deepEqual(
+    historyDb.events.map((event) => event.ip),
+    ["198.51.100.20", "198.51.100.21"],
+  );
 
   const help = await worker.fetch(new Request("https://flower-sub.example/"));
   assert.equal(help.status, 200);
