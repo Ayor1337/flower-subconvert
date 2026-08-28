@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{10}$/;
+const TOKEN_STORAGE_KEY = "flower-sub:history-tokens";
+const MAX_SAVED_TOKENS = 5;
 const TIME_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai",
   year: "numeric",
@@ -23,14 +25,54 @@ function historyErrorMessage(response, payload) {
   return payload?.error || `查询失败（HTTP ${response.status}）`;
 }
 
+function loadSavedTokens() {
+  try {
+    const raw = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.filter((item) => (
+      typeof item === "string" && TOKEN_PATTERN.test(item)
+    )))].slice(0, MAX_SAVED_TOKENS);
+  } catch {
+    return [];
+  }
+}
+
+function saveToken(token) {
+  try {
+    const next = [token, ...loadSavedTokens().filter((item) => item !== token)]
+      .slice(0, MAX_SAVED_TOKENS);
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+function removeToken(token) {
+  try {
+    const next = loadSavedTokens().filter((item) => item !== token);
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return null;
+  }
+}
+
 export default function History() {
   const [token, setToken] = useState("");
+  const [savedTokens, setSavedTokens] = useState([]);
   const [activeToken, setActiveToken] = useState("");
   const [items, setItems] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [queried, setQueried] = useState(false);
+
+  useEffect(() => {
+    setSavedTokens(loadSavedTokens());
+  }, []);
 
   async function fetchHistory(requestToken, cursor = null, append = false) {
     setLoading(true);
@@ -65,6 +107,8 @@ export default function History() {
       );
       setNextCursor(payload.data.nextCursor || null);
       setQueried(true);
+      const saved = saveToken(requestToken);
+      if (saved) setSavedTokens(saved);
     } catch (requestError) {
       setError(requestError instanceof Error
         ? requestError.message
@@ -88,6 +132,21 @@ export default function History() {
 
     setActiveToken(normalizedToken);
     await fetchHistory(normalizedToken);
+  }
+
+  function handleUseSaved(saved) {
+    if (loading || saved === token) return;
+    setToken(saved);
+    setError("");
+    setItems([]);
+    setNextCursor(null);
+    setQueried(false);
+  }
+
+  function handleForget(saved) {
+    const next = removeToken(saved);
+    if (next) setSavedTokens(next);
+    if (saved === token) setToken("");
   }
 
   function handleClear() {
@@ -114,7 +173,8 @@ export default function History() {
 
       <div className="history-panel" data-reveal>
         <p className="history-description">
-          输入订阅 TOKEN 后查询。TOKEN 只随本次请求发送，本页不会主动写入网址或本地存储。
+          输入订阅 TOKEN 后查询。查询成功过的 TOKEN 会记在本机浏览器
+          （localStorage）里作为候选，最多保留 {MAX_SAVED_TOKENS} 个，可随时删除。
         </p>
 
         <form className="history-form" onSubmit={handleSubmit}>
@@ -152,6 +212,35 @@ export default function History() {
           </span>
         </form>
 
+        {savedTokens.length > 0 && (
+          <div className="history-saved" aria-label="最近查询过的 TOKEN">
+            <span className="history-saved-label">最近查询</span>
+            <div className="history-saved-list">
+              {savedTokens.map((saved) => (
+                <span className="history-saved-item" key={saved}>
+                  <button
+                    type="button"
+                    className="history-saved-use"
+                    onClick={() => handleUseSaved(saved)}
+                    title="填入该 TOKEN"
+                  >
+                    {saved}
+                  </button>
+                  <button
+                    type="button"
+                    className="history-saved-remove"
+                    onClick={() => handleForget(saved)}
+                    title="从本机删除该 TOKEN"
+                    aria-label={`删除候选 TOKEN ${saved}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {error && <p className="history-message is-error" role="alert">{error}</p>}
         {!error && queried && !items.length && (
           <p className="history-message" role="status">最近三天没有订阅记录。</p>
@@ -179,7 +268,16 @@ export default function History() {
                       <td data-label="时间">
                         <time dateTime={item.requestedAt}>{formatTime(item.requestedAt)}</time>
                       </td>
-                      <td data-label="IP"><code>{item.ip}</code></td>
+                      <td data-label="IP">
+                        <a
+                          className="history-ip"
+                          href={`https://ipinfo.io/${encodeURIComponent(item.ip)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <code>{item.ip}</code>
+                        </a>
+                      </td>
                       <td data-label="方法"><code>{item.method}</code></td>
                       <td data-label="结果">
                         <span className={`history-status ${item.success ? "is-success" : "is-failure"}`}>

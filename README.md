@@ -58,7 +58,7 @@ curl -H "Authorization: Bearer <短 token>" \
 }
 ```
 
-`limit` 默认 100，范围为 1–500。有下一页时，把响应中的不透明 `nextCursor` 原样作为 `cursor` 查询参数传回。缺少或使用错误 TOKEN 时接口统一返回 `404`。主页也提供手动查询区，TOKEN 仅保存在当前 React 组件内存中，并通过 Authorization 请求头发送；不会写入 URL 或 localStorage，刷新或清除后即消失。
+`limit` 默认 100，范围为 1–500。有下一页时，把响应中的不透明 `nextCursor` 原样作为 `cursor` 查询参数传回。缺少或使用错误 TOKEN 时接口统一返回 `404`。主页也提供手动查询区，TOKEN 仅通过 Authorization 请求头发送，不会写入 URL。查询成功过的 TOKEN 会以明文保存到该浏览器的 localStorage（key `flower-sub:history-tokens`，最多 5 个，可随时在页面上删除）作为候选词；TOKEN 不会写入网址，共享或借用设备时请删除候选或在无痕窗口使用。结果中的 IP 可点击跳转 ipinfo.io 查询归属。
 
 可以用 Node.js 生成一个 10 位随机 token：
 

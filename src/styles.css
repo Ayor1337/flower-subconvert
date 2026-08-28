@@ -678,6 +678,68 @@ h1 {
   line-height: 1.6;
 }
 
+.history-saved {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.history-saved-label {
+  flex: none;
+  color: var(--index-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.history-saved-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-saved-item {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+}
+
+.history-saved-use {
+  padding: 7px 10px;
+  border: 0;
+  cursor: pointer;
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.history-saved-use:hover {
+  color: var(--ink);
+  background: var(--card-hover);
+}
+
+.history-saved-remove {
+  padding: 7px 9px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  cursor: pointer;
+  color: var(--index-muted);
+  background: transparent;
+  font-size: 12px;
+  line-height: 1;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.history-saved-remove:hover {
+  color: var(--orange);
+  background: var(--card-hover);
+}
+
 .history-message {
   margin: 24px 0 0;
   padding: 14px 16px;
@@ -760,6 +822,23 @@ h1 {
 
 .history-table code {
   font-size: inherit;
+}
+
+.history-ip {
+  color: inherit;
+}
+
+.history-ip code {
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.2s ease, color 0.2s ease;
+}
+
+.history-ip:hover code,
+.history-ip:focus-visible code {
+  color: var(--ink);
+  text-decoration-color: var(--orange);
 }
 
 .history-status {
@@ -876,6 +955,11 @@ h1 {
     flex-wrap: wrap;
   }
 
+  .history-saved {
+    flex-direction: column;
+    gap: 8px;
+  }
+
   .history-form input {
     width: 100%;
     flex: 1 0 100%;
@@ -919,6 +1003,11 @@ h1 {
     border: 0;
     white-space: normal;
     text-align: left;
+  }
+
+  .history-ip {
+    display: inline-block;
+    padding: 2px 0;
   }
 
   .history-table td:nth-child(1),
